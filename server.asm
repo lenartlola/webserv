@@ -78,17 +78,75 @@ copy_loop:
 end_copy:
 	ret
 
+get_post_content:
+	mov r9, 182			; really bad way to do it, I assume the content starts at this offset
+	xor r10, r10
+start_copy_fc:
+	cmp byte[read_buffer + r9], 0
+	je end_fc
+	cmp byte[read_buffer + r9], '\n'
+	je incar
+	mov dl, byte [read_buffer + r9]
+	mov byte [file_content + r10], dl
+	inc r9
+	inc r10
+	jmp start_copy_fc
+incar:
+	inc r9
+	jmp start_copy_fc
+end_fc:
+	ret
+
 child_process:
+	mov r12, rdi			; store the connection fd
+	; close socket
+	mov rax, 3
+	mov rdi, rbx
+	syscall
 	; read from the accepted fd
 	mov rax, 0
+	mov rdi, r12
 	lea rsi, [read_buffer]
 	mov rdx, 1024
 	syscall
 
-	mov r12, rdi			; store the connection fd
 	xor r9, r9
 	call get_file_path
 	
+	cmp byte [read_buffer + 0], "G"
+	je GET_R
+	jmp POST_R
+
+POST_R:
+	; create the file
+	mov rax, 2
+	lea rdi, [file_path]
+	mov rsi, 1 | 64				; O_WRONLY | O_CREATE
+	mov rdx, 0o777
+	syscall
+
+	push rax
+
+	; get content from the request
+	call get_post_content
+
+	; write fc to file
+	pop rdi
+	lea rsi, [file_content]
+	mov rdx, r10
+	mov rax, 1
+	syscall
+
+	mov rax, 3
+	syscall
+
+	call write_ok
+
+	xor rdi, rdi
+	mov rax, 60
+	syscall
+
+GET_R:
 	; open the file
 	mov rax, 2
 	lea rdi, [file_path]
@@ -109,13 +167,7 @@ child_process:
 	mov rax, 3
 	syscall
 
-	; write OK to connection
-	mov rdi, r12
-	lea rsi, [msg_buffer]
-	xor rdx, rdx
-	mov rdx, 19
-	mov rax, 1
-	syscall
+	call write_ok
 
 	; write file content to connection
 	mov rdi, r12
@@ -125,18 +177,32 @@ child_process:
 	mov rax, 1
 	syscall
 
-	; close the connection
-	mov rax, 3
+	; exit child with 0
+	xor rdi, rdi
+	mov rax, 60
 	syscall
-	mov rdi, rbx			; reset the socket fd to rdi
+	; close the connection
+	;mov rax, 3
+	;syscall
+	;mov rdi, rbx			; reset the socket fd to rdi
 
+	;ret
+write_ok:
+	; write OK to connection
+	mov rdi, r12
+	lea rsi, [msg_buffer]
+	xor rdx, rdx
+	mov rdx, 19
+	mov rax, 1
+	syscall
 	ret
 
-;fork_process:
-;	mov rax, 57
-;	syscall
-;
-;	ret
+
+fork_process:
+	mov rax, 57
+	syscall
+
+	ret
 
 socket_accept:
 	mov rax, 43
@@ -151,17 +217,22 @@ socket_accept:
 
 server_loop:
 	call socket_accept
-;	call fork_process
-;	cmp rax, 0
-	call child_process
+	mov r12, rdi
+	call fork_process
+	cmp rax, 0
+	je child_process
 
 	; wait to child
-;	mov rdi, 0
-;	mov rsi, 0
-;	mov rdx, 0
-;	mov r10, 0
-;	mov rax, 61
-;	syscall
+	;mov rdi, 0
+	;mov rsi, 0
+	;mov rdx, 0
+	;mov r10, 0
+	;mov rax, 61
+	;syscall
+	mov rdi, r12
+	mov rax, 3
+	syscall
+	mov rdi, rbx
 	jmp server_loop
 	ret
 
