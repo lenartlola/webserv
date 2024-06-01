@@ -162,7 +162,7 @@ server_loop:
 ;	mov r10, 0
 ;	mov rax, 61
 ;	syscall
-	;jmp server_loop
+	jmp server_loop
 	ret
 
 _start:
